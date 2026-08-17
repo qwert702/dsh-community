@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS instances (
   id TEXT PRIMARY KEY,
   slot TEXT NOT NULL UNIQUE,
   subdomain TEXT NOT NULL UNIQUE,
+  rand_subdomain TEXT UNIQUE,
   host_port INTEGER NOT NULL,
   container_name TEXT NOT NULL,
   host TEXT NOT NULL DEFAULT 'local',

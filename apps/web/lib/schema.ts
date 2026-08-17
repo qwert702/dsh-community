@@ -129,7 +129,8 @@ export const instances = sqliteTable(
   {
     id: text('id').primaryKey(),
     slot: text('slot').notNull().unique(), // u1/u2/u3
-    subdomain: text('subdomain').notNull().unique(), // u1.dsh.cbnac.com
+    subdomain: text('subdomain').notNull().unique(), // u1.dsh.cbnac.com(内部槽位域名)
+    randSubdomain: text('rand_subdomain'), // 领取时分配的随机域名(如 rga7i.dsh.cbnac.com),释放后清空
     hostPort: integer('host_port').notNull(), // 3101…
     containerName: text('container_name').notNull(), // dsh-u1
     host: text('host', { enum: ['local', 'nas'] }).notNull().default('local'), // local=本服务器, nas=内网 NAS

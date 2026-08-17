@@ -35,6 +35,33 @@ function socatPort(slot: Instance): number {
   return slot.hostPort + 1000
 }
 
+/** 随机子域名池(领取时分配,释放回池)。文件由 scripts/gen-random-domains.ts 生成。 */
+let randomDomains: string[] | null = null
+function loadRandomDomains(): string[] {
+  if (randomDomains) return randomDomains
+  try {
+    const fs = require('node:fs') as typeof import('node:fs')
+    const path = require('node:path') as typeof import('node:path')
+    const file = path.join(process.cwd(), 'data', 'random-domains.json')
+    randomDomains = JSON.parse(fs.readFileSync(file, 'utf8')) as string[]
+  } catch {
+    randomDomains = []
+  }
+  return randomDomains
+}
+
+/** 领取时分配一个未用的随机子域名;无空闲返回 null(回退用内部 slot 域名) */
+async function allocateRandomDomain(): Promise<string | null> {
+  const pool = loadRandomDomains()
+  if (pool.length === 0) return null
+  // 找出已分配的,剩余随机取一个
+  const usedRows = await db.select({ randSubdomain: instances.randSubdomain }).from(instances).all()
+  const used = new Set(usedRows.map((r) => r.randSubdomain).filter(Boolean))
+  const free = pool.filter((d) => !used.has(d))
+  if (free.length === 0) return null
+  return free[Math.floor(Math.random() * free.length)]
+}
+
 /** 按实例所在主机选择 docker 执行器。 */
 function dockerFor(slot: Instance): (args: string[], opts?: { timeout?: number }) => Promise<{ stdout: string }> {
   return slot.host === 'nas' ? runDockerOnNas : runDocker
@@ -68,7 +95,7 @@ export async function dockerStart(slot: Instance): Promise<void> {
     '--tmpfs', '/tmp',
     '--restart=unless-stopped',
     '-e', `DSH_PORT=${slot.hostPort}`,
-    '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
+    '-e', `DSH_TRUSTED_HOST=${slot.randSubdomain ?? slot.subdomain}`,
     '-v', `${volume}:/home/node/.dsh`,
     '-v', `${slot.containerName}-cache:/home/node/.cache`,
     IMAGE,
@@ -167,6 +194,7 @@ export async function claimInstance(userId: string): Promise<Instance> {
 
   // NAS 实例 docker run 较慢(~16s+),先标记领取再后台启动,让点击立即有响应
   const isNas = free.host === 'nas'
+  const randSub = await allocateRandomDomain()
   await db
     .update(instances)
     .set({
@@ -175,22 +203,26 @@ export async function claimInstance(userId: string): Promise<Instance> {
       claimedAt: now,
       expiresAt: new Date(now.getTime() + INSTANCE_TTL_DAYS * 86400000),
       availableAt: null,
+      randSubdomain: randSub,
       updatedAt: now,
     })
     .where(eq(instances.id, free.id))
 
+  // 用随机域名作为实例对外地址(容器 trusted-host + 前端显示)
+  const claimedSlot = { ...free, randSubdomain: randSub }
+
   if (isNas) {
     // 后台异步启动,不阻塞领取响应;前端轮询 httpReady 显示进度
-    dockerStart(free).catch((e) => {
+    dockerStart(claimedSlot).catch((e) => {
       // 启动失败:回滚为 available,让用户能重试
       console.error(`[claim] NAS 实例 ${free.slot} 启动失败,回滚:`, e)
       db.update(instances)
-        .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, updatedAt: new Date() })
+        .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, randSubdomain: null, updatedAt: new Date() })
         .where(eq(instances.id, free.id))
         .catch(() => {})
     })
   } else {
-    await dockerStart(free)
+    await dockerStart(claimedSlot)
   }
 
   return (await db.select().from(instances).where(eq(instances.id, free.id)).get())!
@@ -210,6 +242,7 @@ export async function releaseInstance(userId: string, id: string): Promise<void>
       status: 'available',
       claimedAt: null,
       expiresAt: null,
+      randSubdomain: null,
       availableAt: new Date(now.getTime() + RELEASE_COOLDOWN_MS),
       updatedAt: now,
     })

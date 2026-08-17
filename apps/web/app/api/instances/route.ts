@@ -19,10 +19,11 @@ export async function GET() {
       const httpReady = r.status === 'claimed' ? await probeReady(r) : false
       const mine = session?.user?.id ? r.userId === session.user.id : false
       // 公开字段:到期时间对本人可见(倒计时用);隐藏 hostPort/containerName/host
+      // 对外地址优先用随机域名(randSubdomain),未分配时回退内部 slot 域名
       return {
         id: r.id,
         slot: r.slot,
-        subdomain: r.subdomain,
+        subdomain: r.randSubdomain ?? r.subdomain,
         status: r.status,
         claimedAt: r.claimedAt,
         expiresAt: r.expiresAt,
