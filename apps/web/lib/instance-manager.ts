@@ -44,8 +44,41 @@ function dockerFor(slot: Instance): (args: string[], opts?: { timeout?: number }
  *  服务器本地实例绑 127.0.0.1(nginx 同机转发);NAS 实例绑 127.0.0.1 + socat 转发 410N 暴露给服务器 nginx。 */
 export async function dockerStart(slot: Instance): Promise<void> {
   const volume = `${slot.containerName}-data`
-  const docker = dockerFor(slot)
-  await docker([
+  if (slot.host === 'nas') {
+    // NAS:一条 ssh 命令里完成 docker run + socat(减少往返,领取响应快)
+    const sp = socatPort(slot)
+    const unit = `dsh-socat-${slot.containerName}`
+    const args = [
+      'run', '-d',
+      '--name', slot.containerName,
+      '--network', 'host',
+      '--memory=150m',
+      '--restart=unless-stopped',
+      '-e', `DSH_PORT=${slot.hostPort}`,
+      '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
+      '-v', `${volume}:/root/.dsh`,
+      IMAGE,
+    ]
+    const dockerCmd = args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
+    const nasCmd = `docker ${dockerCmd} && systemctl stop ${unit} 2>/dev/null; cat > /etc/systemd/system/${unit}.service <<'EOF'
+[Unit]
+Description=socat forward ${sp} -> 127.0.0.1:${slot.hostPort} for dsh ${slot.slot}
+After=docker.service
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:${sp},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${slot.hostPort}
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now ${unit} && systemctl restart ${unit}`
+    await runOnNas(nasCmd).catch((e) => {
+      throw new Error(`NAS 实例启动失败:${String(e?.message ?? e).slice(0, 200)}`)
+    })
+    return
+  }
+
+  await dockerFor(slot)([
     'run', '-d',
     '--name', slot.containerName,
     '--network', 'host',
@@ -56,9 +89,6 @@ export async function dockerStart(slot: Instance): Promise<void> {
     '-v', `${volume}:/root/.dsh`,
     IMAGE,
   ])
-  if (slot.host === 'nas') {
-    await ensureSocat(slot)
-  }
 }
 
 /** NAS 实例:确保 socat 把 0.0.0.0:410N 转发到 127.0.0.1:310N(dsh 拒绝绑非回环)。
@@ -163,7 +193,8 @@ export async function claimInstance(userId: string): Promise<Instance> {
     .get()
   if (!free) throw new Error('当前无空闲实例,稍后再试')
 
-  await dockerStart(free)
+  // NAS 实例 docker run 较慢(~16s+),先标记领取再后台启动,让点击立即有响应
+  const isNas = free.host === 'nas'
   await db
     .update(instances)
     .set({
@@ -175,6 +206,20 @@ export async function claimInstance(userId: string): Promise<Instance> {
       updatedAt: now,
     })
     .where(eq(instances.id, free.id))
+
+  if (isNas) {
+    // 后台异步启动,不阻塞领取响应;前端轮询 httpReady 显示进度
+    dockerStart(free).catch((e) => {
+      // 启动失败:回滚为 available,让用户能重试
+      console.error(`[claim] NAS 实例 ${free.slot} 启动失败,回滚:`, e)
+      db.update(instances)
+        .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, updatedAt: new Date() })
+        .where(eq(instances.id, free.id))
+        .catch(() => {})
+    })
+  } else {
+    await dockerStart(free)
+  }
 
   return (await db.select().from(instances).where(eq(instances.id, free.id)).get())!
 }
