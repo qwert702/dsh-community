@@ -40,3 +40,6 @@ npm-debug.log*
 # 设备侧状态文件由 dsh-link-plugin 写到用户主目录,不入库
 # 服务器凭据真值(本机部署用,严禁提交)
 scripts/.env.local
+
+# 本地编辑器/工具配置
+.claude/
