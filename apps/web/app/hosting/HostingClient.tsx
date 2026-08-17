@@ -178,7 +178,7 @@ export default function HostingClient() {
                             ready ? 'bg-accent-400' : 'animate-pulse bg-amber-400'
                           }`}
                         />
-                        {r.subdomain}
+                        {'我的 dsh 实例'}
                         {ready ? (
                           <span className="rounded-full bg-accent-500/15 px-2 py-0.5 text-xs text-accent-400">
                             运行中
@@ -301,7 +301,9 @@ export default function HostingClient() {
                     : 'border-ink-800/60 bg-ink-900/50 opacity-60'
               }`}
             >
-              <p className="font-mono text-sm font-semibold text-white">{r.subdomain}</p>
+              <p className="font-mono text-sm font-semibold text-white">
+                {r.status === 'available' ? '空闲实例' : 'dsh 实例'}
+              </p>
               <div className="mt-3">
                 {r.status === 'available' ? (
                   <button
