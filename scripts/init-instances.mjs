@@ -1,4 +1,4 @@
-// 服务器:初始化托管实例池(建表 + 种 3 个槽,幂等)
+// 服务器:初始化托管实例池(建表 + 种 6 个槽,幂等)
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const { createClient } = require('@libsql/client')
@@ -28,6 +28,9 @@ const slots = [
   ['inst-u1', 'u1', 'u1.dsh.cbnac.com', 3101, 'dsh-u1'],
   ['inst-u2', 'u2', 'u2.dsh.cbnac.com', 3102, 'dsh-u2'],
   ['inst-u3', 'u3', 'u3.dsh.cbnac.com', 3103, 'dsh-u3'],
+  ['inst-u4', 'u4', 'u4.dsh.cbnac.com', 3104, 'dsh-u4'],
+  ['inst-u5', 'u5', 'u5.dsh.cbnac.com', 3105, 'dsh-u5'],
+  ['inst-u6', 'u6', 'u6.dsh.cbnac.com', 3106, 'dsh-u6'],
 ]
 for (const [id, slot, sub, port, cname] of slots) {
   await c.execute({
