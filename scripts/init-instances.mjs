@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS instances (
   status TEXT NOT NULL DEFAULT 'available',
   claimed_at INTEGER,
   expires_at INTEGER,
+  available_at INTEGER, -- 释放冷却:此时间后才可被领取(null=立即)
   last_seen_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())

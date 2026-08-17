@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS devices (
   status TEXT NOT NULL DEFAULT 'offline',
   token_hash TEXT,
   installed_json TEXT,
+  available_at INTEGER, -- 释放冷却:此时间后才可被领取(null=立即)
   last_seen_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())

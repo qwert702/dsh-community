@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await syncFromGithub({ limit: 30 })
+    const result = await syncFromGithub({ limit: 1000 })
     return NextResponse.json({ ok: true, ...result })
   } catch (e: any) {
     return NextResponse.json(

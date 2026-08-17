@@ -135,7 +135,10 @@ export async function dockerStatus(slot: Instance): Promise<string> {
   }
 }
 
-/** 领取:抢一台空闲槽并启动容器。返回该实例。 */
+/** 领取:抢一台空闲槽并启动容器。返回该实例。
+ *  释放后的实例有 5 分钟冷却(availableAt),避免刚释放就被原用户立刻领回。 */
+const RELEASE_COOLDOWN_MS = 5 * 60 * 1000
+
 export async function claimInstance(userId: string): Promise<Instance> {
   const mine = await db
     .select()
@@ -144,16 +147,17 @@ export async function claimInstance(userId: string): Promise<Instance> {
     .get()
   if (mine) throw new Error('你已领取过一台托管 dsh')
 
+  const now = new Date()
   const free = await db
     .select()
     .from(instances)
-    .where(eq(instances.status, 'available'))
+    .where(and(eq(instances.status, 'available'), lt(instances.availableAt ?? new Date(0), now)))
+    .orderBy(instances.availableAt)
     .limit(1)
     .get()
   if (!free) throw new Error('当前无空闲实例,稍后再试')
 
   await dockerStart(free)
-  const now = new Date()
   await db
     .update(instances)
     .set({
@@ -161,6 +165,7 @@ export async function claimInstance(userId: string): Promise<Instance> {
       status: 'claimed',
       claimedAt: now,
       expiresAt: new Date(now.getTime() + INSTANCE_TTL_DAYS * 86400000),
+      availableAt: null,
       updatedAt: now,
     })
     .where(eq(instances.id, free.id))
@@ -168,15 +173,23 @@ export async function claimInstance(userId: string): Promise<Instance> {
   return (await db.select().from(instances).where(eq(instances.id, free.id)).get())!
 }
 
-/** 释放:本人可释放;停止容器、清数据、回池。 */
+/** 释放:本人可释放;停止容器、清数据、回池(带 5 分钟冷却,防止立刻被同一用户领回)。 */
 export async function releaseInstance(userId: string, id: string): Promise<void> {
   const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
   if (!slot) throw new Error('实例不存在')
   if (slot.userId !== userId) throw new Error('只能释放自己领取的实例')
   await dockerStop(slot)
+  const now = new Date()
   await db
     .update(instances)
-    .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, updatedAt: new Date() })
+    .set({
+      userId: null,
+      status: 'available',
+      claimedAt: null,
+      expiresAt: null,
+      availableAt: new Date(now.getTime() + RELEASE_COOLDOWN_MS),
+      updatedAt: now,
+    })
     .where(eq(instances.id, id))
 }
 
@@ -241,7 +254,14 @@ export async function sweepExpiredInstances(): Promise<number> {
     await dockerStop(slot).catch(() => {})
     await db
       .update(instances)
-      .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, updatedAt: now })
+      .set({
+        userId: null,
+        status: 'available',
+        claimedAt: null,
+        expiresAt: null,
+        availableAt: new Date(now.getTime() + RELEASE_COOLDOWN_MS),
+        updatedAt: now,
+      })
       .where(eq(instances.id, slot.id))
   }
   return expired.length

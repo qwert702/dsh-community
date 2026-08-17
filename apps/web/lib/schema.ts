@@ -139,6 +139,7 @@ export const instances = sqliteTable(
       .default('available'),
     claimedAt: integer('claimed_at', { mode: 'timestamp' }),
     expiresAt: integer('expires_at', { mode: 'timestamp' }),
+    availableAt: integer('available_at', { mode: 'timestamp' }), // 释放冷却:此时间后才可被领取(null=立即)
     lastSeenAt: integer('last_seen_at', { mode: 'timestamp' }),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),

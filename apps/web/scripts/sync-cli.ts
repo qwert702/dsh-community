@@ -10,7 +10,7 @@ const { syncFromGithub } = await import('../lib/registry')
 
 async function main() {
   console.log('开始同步 GitHub topic:dsh-plugin …')
-  const result = await syncFromGithub({ limit: 30 })
+  const result = await syncFromGithub({ limit: 1000 })
   console.log('同步完成:', JSON.stringify(result))
   process.exit(0)
 }

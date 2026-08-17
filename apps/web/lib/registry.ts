@@ -2,7 +2,7 @@ import { eq, or } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
 import { db } from './db'
 import { plugins, type NewPlugin } from './schema'
-import { searchDshPlugins, getDefaultBranchHead } from './github'
+import { searchDshPlugins, getDefaultBranchHead, type GithubRepo } from './github'
 import { validateDshPlugin } from './plugin-validator'
 import { GITHUB_TOKEN, DSH_REGISTRY_HMAC } from './env'
 
@@ -28,10 +28,20 @@ function guessCategory(repoName: string, desc: string | null): string {
  * - 校验 dsh.bundle.patch 声明 → manifestValid + 锁定 spec(github:owner/repo#sha)
  * - 已批准/手动行更新元数据;新仓库以 pending 进入待审核
  * - 未归档且出现在搜索结果但本地已 removed 的行不再激活(下架语义由审批流控制)
+ * - 分页拉全:每页 100,最多 10 页(GitHub Search API 上限前 1000 条);
+ *   opts.limit 若 <100 则视为单页条数(老行为),>100 时按页拉全。
  */
 export async function syncFromGithub(opts?: { limit?: number }): Promise<SyncResult> {
-  const pageSize = opts?.limit ?? 30
-  const repos = await searchDshPlugins(GITHUB_TOKEN, 1, pageSize)
+  const requested = opts?.limit ?? 1000
+  const pageSize = requested >= 100 ? 100 : requested
+  const maxPages = requested >= 100 ? Math.min(Math.ceil(requested / 100), 10) : 1
+
+  let repos: GithubRepo[] = []
+  for (let page = 1; page <= maxPages; page++) {
+    const pageRepos = await searchDshPlugins(GITHUB_TOKEN, page, pageSize)
+    repos = repos.concat(pageRepos)
+    if (pageRepos.length < pageSize) break
+  }
 
   let added = 0
   let updated = 0
