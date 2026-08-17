@@ -13,7 +13,7 @@
 
 1. **插件商店**:自动同步 GitHub 上 `topic:dsh-plugin` 的仓库,校验后上架,提供一键安装命令、签名注册表。
 2. **远程连接(dsh-link-plugin)**:用户本机跑着的 dsh 主动连到网站(WebSocket),在浏览器里就能远程给用户本机安装插件。
-3. **托管实例**:网站用 Docker 提供 12 台托管 dsh 实例(6 台服务器 + 6 台 NAS,2026-08-17),用户可"领取"一台,在浏览器里像正常 dsh 一样用。
+3. **托管实例**:网站用 Docker 提供 20 台托管 dsh 实例(6 台服务器 + 14 台 NAS,2026-08-17),用户可"领取"一台,在浏览器里像正常 dsh 一样用。
 
 主站 cbnac.com(英语学习站)和 blog.cbnac.com(博客)**都未动**,新站跑在子域 dsh.cbnac.com。
 
@@ -39,7 +39,7 @@
 ### 服务器(腾讯云,现为阿里云 Linux 3)
 
 - IP:**47.98.207.149**;root 密码见本机 `scripts/.env.local`(**敏感,不入库**)
-- 配置:**2 核 / 1.8GB 内存** / 40GB 磁盘 —— 资源很紧张,托管 12 台实例已是上限(含 NAS 内存)
+- 配置:**2 核 / 1.8GB 内存** / 40GB 磁盘 —— 资源很紧张,托管 20 台实例已是上限(含 NAS 内存)
 - 软件:nginx 1.24、Node.js 20(站点)、PM2、Docker 26.1.3、Let's Encrypt(certbot)
 
 ### 端口 / PM2 进程
@@ -50,16 +50,16 @@
 | 3001 | `dsh-ws` | WebSocket 网关(dsh-link 远程连接) |
 | 3002 | `dsh-web` | Next.js 15 社区站(standalone→改为 npm 全量部署) |
 | 3101~3106 | Docker `dsh-u1~u6` | 托管实例(服务器本地),host 网络绑定宿主 127.0.0.1 |
-| 3107~3112 | Docker `dsh-u7~u12` | 托管实例(NAS,经 tailnet),host 网络 + socat 转发 4107~4112 |
+| 3107~3120 | Docker `dsh-u7~u20` | 托管实例(NAS,经 tailnet),host 网络 + socat 转发 4107~4120 |
 
 ### 目录 / 配置
 
 - 站点:`/www/wwwroot/cbnac.com/dsh-site/`(含 `data/dsh.db`)
 - 网关:`/www/wwwroot/cbnac.com/ws-gateway/`
 - Docker 镜像构建:`/www/wwwroot/cbnac.com/dsh-harness/`
-- nginx:`/etc/nginx/conf.d/` → `cbnac.com.conf`(主站)、`dsh.cbnac.com.conf`(社区站)、`dsh-hosting.conf`(托管子域 u1~u12,其中 u7~u12 反代到 NAS)
+- nginx:`/etc/nginx/conf.d/` → `cbnac.com.conf`(主站)、`dsh.cbnac.com.conf`(社区站)、`dsh-hosting.conf`(托管子域 u1~u20,其中 u7~u20 反代到 NAS)
 - PM2 配置:`/www/wwwroot/cbnac.com/ecosystem.config.cjs`
-- 证书:`/etc/letsencrypt/live/{cbnac.com,dsh.cbnac.com,u1.dsh.cbnac.com}/`(u1 那张含 u1~u12 十二个 SAN)
+- 证书:`/etc/letsencrypt/live/{cbnac.com,dsh.cbnac.com,u1.dsh.cbnac.com}/`(u1 那张含 u1~u20 二十个 SAN)
 
 ### 数据库(SQLite,`data/dsh.db`)
 
