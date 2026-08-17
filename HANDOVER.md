@@ -13,7 +13,7 @@
 
 1. **插件商店**:自动同步 GitHub 上 `topic:dsh-plugin` 的仓库,校验后上架,提供一键安装命令、签名注册表。
 2. **远程连接(dsh-link-plugin)**:用户本机跑着的 dsh 主动连到网站(WebSocket),在浏览器里就能远程给用户本机安装插件。
-3. **托管实例**:网站用 Docker 提供 6 台托管 dsh 实例(2026-08-17 由 3 台扩容),用户可"领取"一台,在浏览器里像正常 dsh 一样用。
+3. **托管实例**:网站用 Docker 提供 12 台托管 dsh 实例(6 台服务器 + 6 台 NAS,2026-08-17),用户可"领取"一台,在浏览器里像正常 dsh 一样用。
 
 主站 cbnac.com(英语学习站)和 blog.cbnac.com(博客)**都未动**,新站跑在子域 dsh.cbnac.com。
 
@@ -39,7 +39,7 @@
 ### 服务器(腾讯云,现为阿里云 Linux 3)
 
 - IP:**47.98.207.149**;root 密码见本机 `scripts/.env.local`(**敏感,不入库**)
-- 配置:**2 核 / 1.8GB 内存** / 40GB 磁盘 —— 资源很紧张,托管 6 台实例已是上限
+- 配置:**2 核 / 1.8GB 内存** / 40GB 磁盘 —— 资源很紧张,托管 12 台实例已是上限(含 NAS 内存)
 - 软件:nginx 1.24、Node.js 20(站点)、PM2、Docker 26.1.3、Let's Encrypt(certbot)
 
 ### 端口 / PM2 进程
@@ -49,16 +49,17 @@
 | 3000 | `cbnac` | 旧英语学习站(**2026-08-17 已暂停释放内存**,`pm2 start cbnac` 可恢复) |
 | 3001 | `dsh-ws` | WebSocket 网关(dsh-link 远程连接) |
 | 3002 | `dsh-web` | Next.js 15 社区站(standalone→改为 npm 全量部署) |
-| 3101~3106 | Docker `dsh-u1~u6` | 托管实例,host 网络绑定宿主 127.0.0.1 |
+| 3101~3106 | Docker `dsh-u1~u6` | 托管实例(服务器本地),host 网络绑定宿主 127.0.0.1 |
+| 3107~3112 | Docker `dsh-u7~u12` | 托管实例(NAS,经 tailnet),host 网络 + socat 转发 4107~4112 |
 
 ### 目录 / 配置
 
 - 站点:`/www/wwwroot/cbnac.com/dsh-site/`(含 `data/dsh.db`)
 - 网关:`/www/wwwroot/cbnac.com/ws-gateway/`
 - Docker 镜像构建:`/www/wwwroot/cbnac.com/dsh-harness/`
-- nginx:`/etc/nginx/conf.d/` → `cbnac.com.conf`(主站)、`dsh.cbnac.com.conf`(社区站)、`dsh-hosting.conf`(托管子域 u1~u6)
+- nginx:`/etc/nginx/conf.d/` → `cbnac.com.conf`(主站)、`dsh.cbnac.com.conf`(社区站)、`dsh-hosting.conf`(托管子域 u1~u12,其中 u7~u12 反代到 NAS)
 - PM2 配置:`/www/wwwroot/cbnac.com/ecosystem.config.cjs`
-- 证书:`/etc/letsencrypt/live/{cbnac.com,dsh.cbnac.com,u1.dsh.cbnac.com}/`(u1 那张含 u1~u6 六个 SAN)
+- 证书:`/etc/letsencrypt/live/{cbnac.com,dsh.cbnac.com,u1.dsh.cbnac.com}/`(u1 那张含 u1~u12 十二个 SAN)
 
 ### 数据库(SQLite,`data/dsh.db`)
 
@@ -125,6 +126,13 @@
 5. **仓库开源 + 凭据脱敏**:完成(2026-08-17)。仓库推送至 **github.com/qwert702/dsh-community**(public)。推送前已脱敏:git 历史重写为单个初始 commit(彻底清除旧历史里的 root 密码/PAT/密钥),HANDOVER.md 凭据改为引用,scp/ssh/ecosystem 脚本密钥改环境变量(真值在本机 `scripts/.env.local`,已 gitignore)。本机 push 需走代理 `git config http.proxy http://127.0.0.1:7897`。
 6. **容量优化**:完成(2026-08-17)。旧站 `cbnac` 已 `pm2 stop`(释放 ~280MB,可 `pm2 start cbnac` 恢复);托管实例内存限制 350MB → **150MB**(`dockerStart`/`run-instance.sh` 改 `--memory=150m`,已运行容器 `docker update` 动态降限)。实测 dsh 在 150MB 下占用 90~115MB,服务正常。**注意**:若以后加更多实例,先 `docker update` 已有容器并确认站点进程内存。
 7. **实例池扩至 6 台**:完成(2026-08-17)。新增 u4/u5/u6(端口 3104~3106):DB 种 6 槽(`init-instances.mjs` 已更新)、证书 expand 为 6 个 SAN(u1 证书)、nginx `dsh-hosting.conf` 加 3 个 server block(含 sub_filter 注入 + Host/Origin 重写)。实测 u4 测试容器 150m 限制 + dsh web 200,清理后恢复 available。当前池:u1/u2 被领取运行中,u3~u6 空闲。
+8. **NAS 扩容到 12 台(利用 NAS 内存)**:完成(2026-08-17)。用户 NAS(飞牛/Debian 12,tailnet `100.76.91.96`)加入托管池,新增 u7~u12(端口 3107~3112):
+   - **网络**:服务器装 Tailscale 加入用户 tailnet;`instances` 表加 `host` 列(`local`/`nas`);`instance-manager` 的 docker 命令按 host 路由(NAS 经 `ssh root@100.76.91.96` 免密执行,服务器→NAS 已互信)。
+   - **关键坑**:dsh 出于安全**拒绝 `--host 0.0.0.0`**(报 "would expose remote code execution")——NAS 上 dsh 只能绑 `127.0.0.1:310N`,跨机访问靠 **socat** 转发:`systemd` 服务 `dsh-socat-<容器名>` 监听 `0.0.0.0:410N` → 转发 `127.0.0.1:310N`(脚本 `dist/setup-socat.sh`)。`dockerStart` 自动 ensureSocat,`dockerStop` 清理。
+   - **nginx**:u7~u12 反代 `http://100.76.91.96:4107~4112`(socat 端口),Host/Origin 重写同本地实例(过 browser-trust fence),控制条注入同款。证书 expand 到 12 个 SAN。
+   - **镜像**:服务器 `docker save | gzip`(491MB)→ 经 tailnet rsync/公网中转 → NAS `docker load`;NAS 无法直接构建(node:24-slim 拉不下来,飞牛源 401)。
+   - **验证**:u7/u8 容器在 NAS 上跑通,页面 200、控制条注入、fence 通过(与本地实例行为一致);测试容器与 socat 已清理,当前 u7~u12 空闲可领。
+   - **内存**:NAS 可用 ~5.6GB,12 台全开也没问题;NAS 重启后 docker 与 socat systemd 均自启。
 
 ### ⏳ 待办 / 打磨(M4 计划项,未做)
 3. **i18n 中英双语**(参照 dsh.so)—— 全站目前只有中文。
