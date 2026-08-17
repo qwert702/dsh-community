@@ -40,77 +40,50 @@ function dockerFor(slot: Instance): (args: string[], opts?: { timeout?: number }
   return slot.host === 'nas' ? runDockerOnNas : runDocker
 }
 
-/** 启动容器(host 网络 + DSH_PORT 指定端口)。
- *  服务器本地实例绑 127.0.0.1(nginx 同机转发);NAS 实例绑 127.0.0.1 + socat 转发 410N 暴露给服务器 nginx。 */
+/** 启动容器(安全加固版):
+ *  - bridge 网络:容器间/到宿主隔离;本地映射 127.0.0.1:310N,NAS 映射 100.76.91.96:410N(socat 端口)
+ *  - 非 root(node) + cap-drop ALL + no-new-privileges + 只读根 + pids 限制
+ *  - 容器内 entrypoint 起 socat 把 eth0:PORT 转发到 127.0.0.1:PORT(dsh 拒绝绑 0.0.0.0)
+ *  - volume 挂 /home/node/.dsh(node 用户 DSH_HOME) */
 export async function dockerStart(slot: Instance): Promise<void> {
   const volume = `${slot.containerName}-data`
+  const exposedPort = slot.host === 'nas' ? socatPort(slot) : slot.hostPort
+  const bindHost = slot.host === 'nas' ? NAS_HOST : '127.0.0.1'
+  // 内存:NAS 实例 300m(内存充裕,留足插件安装);服务器本地 200m(受宿主机总量限制)
+  const memLimit = slot.host === 'nas' ? '300m' : '200m'
+  const args = [
+    'run', '-d',
+    '--name', slot.containerName,
+    '--network', 'bridge',
+    '-p', `${bindHost}:${exposedPort}:${slot.hostPort}`,
+    `--memory=${memLimit}`,
+    '--pids-limit=256',
+    '--cap-drop=ALL',
+    '--cap-add', 'SETUID',
+    '--cap-add', 'SETGID',
+    '--cap-add', 'CHOWN',
+    '--cap-add', 'DAC_OVERRIDE',
+    '--security-opt', 'no-new-privileges',
+    '--read-only',
+    '--tmpfs', '/tmp',
+    '--restart=unless-stopped',
+    '-e', `DSH_PORT=${slot.hostPort}`,
+    '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
+    '-v', `${volume}:/home/node/.dsh`,
+    '-v', `${slot.containerName}-cache:/home/node/.cache`,
+    IMAGE,
+  ]
+
   if (slot.host === 'nas') {
-    // NAS:一条 ssh 命令里完成 docker run + socat(减少往返,领取响应快)
-    const sp = socatPort(slot)
-    const unit = `dsh-socat-${slot.containerName}`
-    const args = [
-      'run', '-d',
-      '--name', slot.containerName,
-      '--network', 'host',
-      '--memory=150m',
-      '--restart=unless-stopped',
-      '-e', `DSH_PORT=${slot.hostPort}`,
-      '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
-      '-v', `${volume}:/root/.dsh`,
-      IMAGE,
-    ]
+    // NAS:经 tailnet ssh 执行(与本地同参数)
     const dockerCmd = args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
-    const nasCmd = `docker ${dockerCmd} && systemctl stop ${unit} 2>/dev/null; cat > /etc/systemd/system/${unit}.service <<'EOF'
-[Unit]
-Description=socat forward ${sp} -> 127.0.0.1:${slot.hostPort} for dsh ${slot.slot}
-After=docker.service
-[Service]
-ExecStart=/usr/bin/socat TCP-LISTEN:${sp},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${slot.hostPort}
-Restart=always
-RestartSec=3
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload && systemctl enable --now ${unit} && systemctl restart ${unit}`
-    await runOnNas(nasCmd).catch((e) => {
+    await runOnNas(`docker ${dockerCmd}`).catch((e) => {
       throw new Error(`NAS 实例启动失败:${String(e?.message ?? e).slice(0, 200)}`)
     })
     return
   }
 
-  await dockerFor(slot)([
-    'run', '-d',
-    '--name', slot.containerName,
-    '--network', 'host',
-    '--memory=150m',
-    '--restart=unless-stopped',
-    '-e', `DSH_PORT=${slot.hostPort}`,
-    '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
-    '-v', `${volume}:/root/.dsh`,
-    IMAGE,
-  ])
-}
-
-/** NAS 实例:确保 socat 把 0.0.0.0:410N 转发到 127.0.0.1:310N(dsh 拒绝绑非回环)。
- *  用 systemd 用户级托管保证重启后仍在;每次启动幂等。 */
-export async function ensureSocat(slot: Instance): Promise<void> {
-  const sp = socatPort(slot)
-  const unit = `dsh-socat-${slot.containerName}`
-  const cmd = `systemctl stop ${unit} 2>/dev/null; cat > /etc/systemd/system/${unit}.service <<EOF
-[Unit]
-Description=socat forward ${sp} -> 127.0.0.1:${slot.hostPort} for dsh ${slot.slot}
-After=docker.service
-[Service]
-ExecStart=/usr/bin/socat TCP-LISTEN:${sp},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${slot.hostPort}
-Restart=always
-RestartSec=3
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload && systemctl enable --now ${unit} && systemctl restart ${unit}`
-  await runOnNas(cmd).catch((e) => {
-    throw new Error(`NAS socat 启动失败:${String(e?.message ?? e).slice(0, 200)}`)
-  })
+  await runDocker(args)
 }
 
 export async function dockerStop(slot: Instance): Promise<void> {
@@ -119,10 +92,7 @@ export async function dockerStop(slot: Instance): Promise<void> {
   await docker(['stop', '-t', '3', slot.containerName]).catch(() => {})
   await docker(['rm', slot.containerName]).catch(() => {})
   await docker(['volume', 'rm', `${slot.containerName}-data`]).catch(() => {})
-  if (slot.host === 'nas') {
-    // 清理 socat 转发服务
-    await runOnNas(`systemctl stop dsh-socat-${slot.containerName} 2>/dev/null; systemctl disable dsh-socat-${slot.containerName} 2>/dev/null`).catch(() => {})
-  }
+  await docker(['volume', 'rm', `${slot.containerName}-cache`]).catch(() => {})
 }
 
 /** 重启容器(保留容器与数据卷)。 */
@@ -144,7 +114,9 @@ export async function waitReady(slot: Instance): Promise<boolean> {
 /** 单次探测容器端口上的 dsh web 是否已就绪(短超时,给轮询接口用)。 */
 export async function probeReady(slot: Instance): Promise<boolean> {
   try {
-    const base = slot.host === 'nas' ? `http://${NAS_HOST}:${slot.hostPort}` : `http://127.0.0.1:${slot.hostPort}`
+    // NAS 实例暴露在 socat 端口(hostPort+1000),本地实例直接 hostPort
+    const exposed = slot.host === 'nas' ? socatPort(slot) : slot.hostPort
+    const base = slot.host === 'nas' ? `http://${NAS_HOST}:${exposed}` : `http://127.0.0.1:${exposed}`
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 2000)
     const res = await fetch(`${base}/`, { signal: controller.signal })
@@ -277,6 +249,33 @@ export async function upgradeInstance(userId: string, id: string): Promise<void>
   await docker(['stop', '-t', '3', slot.containerName]).catch(() => {})
   await docker(['rm', slot.containerName]).catch(() => {})
   await dockerStart(slot)
+}
+
+/** 在指定实例容器内安装插件(经 docker exec;只允许安装本站商店白名单插件)。
+ *  tarballUrl 必须是本站域名(防任意源),调用方负责白名单校验。 */
+export async function installPluginInInstance(userId: string, id: string, tarballUrl: string): Promise<string> {
+  const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
+  if (!slot) throw new Error('实例不存在')
+  if (slot.userId !== userId) throw new Error('只能操作自己领取的实例')
+  if (slot.status !== 'claimed') throw new Error('实例未在运行')
+
+  // 只允许本站分发的 tarball
+  const allowed = /^https:\/\/dsh\.cbnac\.com\/api\/plugins\/[a-z0-9-]+\/tarball$/.test(tarballUrl)
+  if (!allowed) throw new Error('仅支持安装本站商店插件')
+
+  const docker = dockerFor(slot)
+  // 以 node 用户执行;profile 内 .npmrc 已配 store-dir + ignore-workspace-root-check(镜像预置)
+  // pnpm add 装依赖 + dsh-add-bundle.js 把包名加入 dsh.profile.bundles
+  const installCmd =
+    `su -s /bin/bash node -c "cd /home/node/.dsh/profiles/web && ` +
+    `pnpm add '${tarballUrl}' && node /usr/local/bin/dsh-add-bundle.js /home/node/.dsh/profiles/web"`
+  const { stdout } = (await docker(
+    ['exec', slot.containerName, 'sh', '-c', installCmd],
+    { timeout: 300000 },
+  ).catch((e) => {
+    throw new Error(`插件安装失败:${String(e?.message ?? e).slice(0, 200)}`)
+  })) as unknown as { stdout: string }
+  return stdout
 }
 
 /** 续期(每次 +7 天)。 */

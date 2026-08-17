@@ -7,10 +7,7 @@ interface InstRow {
   id: string
   slot: string
   subdomain: string
-  hostPort: number
-  containerName: string
   status: 'available' | 'claimed' | 'expired'
-  userId: string | null
   claimedAt: string | Date | null
   expiresAt: string | Date | null
   containerStatus: string
@@ -193,7 +190,7 @@ export default function HostingClient() {
                         )}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">
-                        剩余 {days} 天 {hours} 小时 · 容器 {r.containerName}
+                        剩余 {days} 天 {hours} 小时
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -304,8 +301,7 @@ export default function HostingClient() {
                     : 'border-ink-800/60 bg-ink-900/50 opacity-60'
               }`}
             >
-              <p className="font-mono text-sm font-semibold text-white">{r.slot}</p>
-              <p className="mt-1 text-xs text-slate-500">{r.subdomain}</p>
+              <p className="font-mono text-sm font-semibold text-white">{r.subdomain}</p>
               <div className="mt-3">
                 {r.status === 'available' ? (
                   <button

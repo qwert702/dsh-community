@@ -31,5 +31,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/instances/:path*'],
+  matcher: ['/api/instances/:path*', '/api/plugins/list'],
 }

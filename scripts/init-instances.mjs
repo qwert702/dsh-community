@@ -1,4 +1,4 @@
-// 服务器:初始化托管实例池(建表 + 种 20 个槽,幂等)
+// 服务器:初始化托管实例池(建表 + 种 12 个槽,幂等)
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const { createClient } = require('@libsql/client')
@@ -41,14 +41,6 @@ const slots = [
   ['inst-u10', 'u10', 'u10.dsh.cbnac.com', 3110, 'dsh-u10', 'nas'],
   ['inst-u11', 'u11', 'u11.dsh.cbnac.com', 3111, 'dsh-u11', 'nas'],
   ['inst-u12', 'u12', 'u12.dsh.cbnac.com', 3112, 'dsh-u12', 'nas'],
-  ['inst-u13', 'u13', 'u13.dsh.cbnac.com', 3113, 'dsh-u13', 'nas'],
-  ['inst-u14', 'u14', 'u14.dsh.cbnac.com', 3114, 'dsh-u14', 'nas'],
-  ['inst-u15', 'u15', 'u15.dsh.cbnac.com', 3115, 'dsh-u15', 'nas'],
-  ['inst-u16', 'u16', 'u16.dsh.cbnac.com', 3116, 'dsh-u16', 'nas'],
-  ['inst-u17', 'u17', 'u17.dsh.cbnac.com', 3117, 'dsh-u17', 'nas'],
-  ['inst-u18', 'u18', 'u18.dsh.cbnac.com', 3118, 'dsh-u18', 'nas'],
-  ['inst-u19', 'u19', 'u19.dsh.cbnac.com', 3119, 'dsh-u19', 'nas'],
-  ['inst-u20', 'u20', 'u20.dsh.cbnac.com', 3120, 'dsh-u20', 'nas'],
 ]
 for (const [id, slot, sub, port, cname, host] of slots) {
   await c.execute({
