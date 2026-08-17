@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { and, eq, lt } from 'drizzle-orm'
+import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import { db } from './db'
 import { instances, type Instance } from './schema'
 
@@ -151,7 +151,13 @@ export async function claimInstance(userId: string): Promise<Instance> {
   const free = await db
     .select()
     .from(instances)
-    .where(and(eq(instances.status, 'available'), lt(instances.availableAt ?? new Date(0), now)))
+    .where(
+      and(
+        eq(instances.status, 'available'),
+        // 可领:未设置冷却(availableAt 为 null)或冷却已过
+        or(isNull(instances.availableAt), lt(instances.availableAt, now)),
+      ),
+    )
     .orderBy(instances.availableAt)
     .limit(1)
     .get()
