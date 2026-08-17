@@ -68,7 +68,7 @@
   $('dsh-mk-close').addEventListener('click', () => panel.classList.remove('open'))
 
   // 识别实例 id(按 subdomain 匹配,比按 slot 更健壮)
-  async function resolveInstance(): Promise<string | null> {
+  async function resolveInstance() {
     if (instanceId) return instanceId
     try {
       const r = await fetch(`${API}/api/instances`, { credentials: 'include' })
