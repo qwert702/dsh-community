@@ -24,7 +24,7 @@
 .dsh-mk-install{margin-top:8px;width:100%;padding:6px 10px;border-radius:8px;border:none;background:#f59e0b;color:#0f172a;font-size:12px;font-weight:700;cursor:pointer}
 .dsh-mk-install:disabled{opacity:.5;cursor:not-allowed}
 .dsh-mk-install.done{background:#22c55e;color:#052e16}
-.dsh-mk-fab{position:fixed;right:16px;bottom:20px;z-index:2147483003;width:48px;height:48px;border-radius:50%;border:none;background:#f59e0b;color:#0f172a;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4);font-family:inherit}
+.dsh-mk-fab{position:fixed;left:16px;bottom:20px;z-index:2147483003;width:48px;height:48px;border-radius:50%;border:none;background:#f59e0b;color:#0f172a;font-size:11px;font-weight:800;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4);font-family:inherit}
 .dsh-mk-toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:2147483004;padding:9px 18px;border-radius:10px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.3);color:#f1f5f9;font-size:13px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.45);max-width:76vw}
 .dsh-mk-toast.err{border-color:rgba(239,68,68,.5);color:#fca5a5}
 .dsh-mk-toast.ok{border-color:rgba(34,197,94,.5);color:#86efac}
