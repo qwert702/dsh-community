@@ -134,6 +134,16 @@
    - **验证**:u7/u8 容器在 NAS 上跑通,页面 200、控制条注入、fence 通过(与本地实例行为一致);测试容器与 socat 已清理,当前 u7~u12 空闲可领。
    - **内存**:NAS 可用 ~5.6GB,12 台全开也没问题;NAS 重启后 docker 与 socat systemd 均自启。
 
+
+9. **安全加固 + 信息隐藏 + 插件市场(2026-08-17)**:
+   - **容器隔离**:host 网络 → bridge(容器间/到宿主/tailnet 全隔离,实测容器内访问 NAS/其他实例被阻断);非 root(node 用户) + `--cap-drop=ALL`(仅留 SETUID/SETGID/CHOWN/DAC_OVERRIDE 供 chown+降权) + 只读根文件系统 + `--pids-limit=256`;服务器 iptables DOCKER-USER/INPUT 链阻断容器访问 3000/3001/3002(脚本 `scripts/setup-firewall.sh`,规则存 `/etc/iptables.rules`)。
+   - **容器内 socat**:dsh 拒绝 `--host 0.0.0.0`(安全设计),entrypoint 内 socat 监听容器 eth0:PORT → 转发 127.0.0.1:PORT;宿主机 `-p 127.0.0.1:310N:310N`(本地)/ `-p 100.76.91.96:410N:410N`(NAS)。
+   - **镜像瘦身**:1.49G → 956M,移除 git/build-essential/python3/make/g++(阻断容器内装任意 github 插件跑 prepare);保留 pnpm(装本站 tarball)。
+   - **内存**:本地实例 200m / NAS 实例 300m(150m 下 pnpm 装插件会被 OOM 杀,实测 400m 成功)。
+   - **信息隐藏**:`GET /api/instances` 不再返回 hostPort/containerName/host(只留 id/slot/subdomain/status/时间/就绪);前端删「容器 dsh-u1」等内部文案。
+   - **插件市场(只能装本站)**:新 API `GET /api/plugins/list`(上架列表)、`GET /api/plugins/[slug]/tarball`(本站 tar.gz 分发,git trees API 并发下载 8s 内完成,缓存 data/plugin-cache/)、`POST /api/instances/[id]/plugin/install`(白名单+docker exec 安装);实例页面 nginx 注入 `market.js` 插件市场面板。容器内无 git + API 白名单强制 → 非本站插件装不上。本机预生成脚本 `apps/web/scripts/prebuild-tarballs.ts`(走代理,zipball 限流 429 需分批)。
+   - **坑**:pnpm 装插件需 `ignore-workspace-root-check`(镜像 .npmrc 预置)+ store-dir 指 volume(`/home/node/.dsh/.pnpm-store`)+ 可写 cache volume(`/home/node/.cache`);node -e 在 docker exec+su 双重 shell 下转义崩,用独立脚本 `add-bundle.js`。
+
 ### ⏳ 待办 / 打磨(M4 计划项,未做)
 3. **i18n 中英双语**(参照 dsh.so)—— 全站目前只有中文。
 4. **GitHub OAuth 登录**(现在是账号密码)。
