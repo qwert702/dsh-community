@@ -144,6 +144,14 @@
    - **插件市场(只能装本站)**:新 API `GET /api/plugins/list`(上架列表)、`GET /api/plugins/[slug]/tarball`(本站 tar.gz 分发,git trees API 并发下载 8s 内完成,缓存 data/plugin-cache/)、`POST /api/instances/[id]/plugin/install`(白名单+docker exec 安装);实例页面 nginx 注入 `market.js` 插件市场面板。容器内无 git + API 白名单强制 → 非本站插件装不上。本机预生成脚本 `apps/web/scripts/prebuild-tarballs.ts`(走代理,zipball 限流 429 需分批)。
    - **坑**:pnpm 装插件需 `ignore-workspace-root-check`(镜像 .npmrc 预置)+ store-dir 指 volume(`/home/node/.dsh/.pnpm-store`)+ 可写 cache volume(`/home/node/.cache`);node -e 在 docker exec+su 双重 shell 下转义崩,用独立脚本 `add-bundle.js`。
 
+10. **实例子域名随机化(2026-08-17)**:领取时分配随机子域名(如 `rga7i.dsh.cbnac.com`),隐藏内部槽位(u1~u12 不再暴露给用户)。
+   - **前提发现**:阿里云 DNS 通配符 `*.dsh.cbnac.com` 实际已存在(随机子域可解析,之前误判无通配符)。
+   - **证书**:certbot HTTP-01 自动签发 92 SAN(u1~u12 + 80 个随机域名),零手动操作(nginx 80 通配 server 块 + acme-challenge 已就绪)。
+   - **域名池**:`apps/web/scripts/gen-random-domains.ts` 生成 80 个 `r<4位随机>` 域名(去易混淆字符),存 `data/random-domains.json`。
+   - **分配**:`instances.rand_subdomain` 列,领取时从池取未用的,释放清空回池;`instance-manager` 懒加载池文件。
+   - **nginx**:通配 https block `server_name *.dsh.cbnac.com` + `map $host $dsh_upstream`(`/etc/nginx/conf.d/dsh-random-map.conf`,80 条静态映射域名→端口),Host 头用 `$dsh_upstream` 过 fence;控制条/market 注入同款。
+   - **API/前端**:对外地址用 `randSubdomain ?? subdomain`,内部 slot 域名不暴露。
+
 ### ⏳ 待办 / 打磨(M4 计划项,未做)
 3. **i18n 中英双语**(参照 dsh.so)—— 全站目前只有中文。
 4. **GitHub OAuth 登录**(现在是账号密码)。
