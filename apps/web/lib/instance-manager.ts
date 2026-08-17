@@ -1,0 +1,176 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { and, eq, lt } from 'drizzle-orm'
+import { db } from './db'
+import { instances, type Instance } from './schema'
+
+const run = promisify(execFile)
+
+export const INSTANCE_TTL_DAYS = 7
+const IMAGE = process.env.DSH_HARNESS_IMAGE || 'dsh-harness:latest'
+
+function runDocker(args: string[]): Promise<{ stdout: string }> {
+  return run('docker', args, { timeout: 60000 }) as unknown as Promise<{ stdout: string }>
+}
+
+/** 启动容器(host 网络 + DSH_PORT 指定端口;dsh 只允许绑 127.0.0.1) */
+export async function dockerStart(slot: Instance): Promise<void> {
+  const volume = `${slot.containerName}-data`
+  await runDocker([
+    'run', '-d',
+    '--name', slot.containerName,
+    '--network', 'host',
+    '--memory=350m',
+    '--restart=unless-stopped',
+    '-e', `DSH_PORT=${slot.hostPort}`,
+    '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
+    '-v', `${volume}:/root/.dsh`,
+    IMAGE,
+  ])
+}
+
+export async function dockerStop(slot: Instance): Promise<void> {
+  // 忽略不存在容器的报错
+  await runDocker(['stop', '-t', '3', slot.containerName]).catch(() => {})
+  await runDocker(['rm', slot.containerName]).catch(() => {})
+  await runDocker(['volume', 'rm', `${slot.containerName}-data`]).catch(() => {})
+}
+
+/** 重启容器(保留容器与数据卷)。 */
+export async function dockerRestart(slot: Instance): Promise<void> {
+  await runDocker(['restart', slot.containerName])
+}
+
+/** 等待容器端口上的 dsh web 就绪(轮询到 HTTP 200,最长约 25s)。 */
+export async function waitReady(slot: Instance): Promise<boolean> {
+  const deadline = Date.now() + 25000
+  while (Date.now() < deadline) {
+    if (await probeReady(slot)) return true
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  return false
+}
+
+/** 单次探测容器端口上的 dsh web 是否已就绪(短超时,给轮询接口用)。 */
+export async function probeReady(slot: Instance): Promise<boolean> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 2000)
+    const res = await fetch(`http://127.0.0.1:${slot.hostPort}/`, { signal: controller.signal })
+    clearTimeout(timer)
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function dockerStatus(slot: Instance): Promise<string> {
+  try {
+    const { stdout } = await runDocker(['inspect', '--format', '{{.State.Status}}', slot.containerName])
+    return stdout.trim()
+  } catch {
+    return 'missing'
+  }
+}
+
+/** 领取:抢一台空闲槽并启动容器。返回该实例。 */
+export async function claimInstance(userId: string): Promise<Instance> {
+  const mine = await db
+    .select()
+    .from(instances)
+    .where(eq(instances.userId, userId))
+    .get()
+  if (mine) throw new Error('你已领取过一台托管 dsh')
+
+  const free = await db
+    .select()
+    .from(instances)
+    .where(eq(instances.status, 'available'))
+    .limit(1)
+    .get()
+  if (!free) throw new Error('当前无空闲实例,稍后再试')
+
+  await dockerStart(free)
+  const now = new Date()
+  await db
+    .update(instances)
+    .set({
+      userId,
+      status: 'claimed',
+      claimedAt: now,
+      expiresAt: new Date(now.getTime() + INSTANCE_TTL_DAYS * 86400000),
+      updatedAt: now,
+    })
+    .where(eq(instances.id, free.id))
+
+  return (await db.select().from(instances).where(eq(instances.id, free.id)).get())!
+}
+
+/** 释放:本人可释放;停止容器、清数据、回池。 */
+export async function releaseInstance(userId: string, id: string): Promise<void> {
+  const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
+  if (!slot) throw new Error('实例不存在')
+  if (slot.userId !== userId) throw new Error('只能释放自己领取的实例')
+  await dockerStop(slot)
+  await db
+    .update(instances)
+    .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, updatedAt: new Date() })
+    .where(eq(instances.id, id))
+}
+
+/** 重启:本人可操作;重启容器,数据卷保留。 */
+export async function restartInstance(userId: string, id: string): Promise<void> {
+  const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
+  if (!slot) throw new Error('实例不存在')
+  if (slot.userId !== userId) throw new Error('只能操作自己领取的实例')
+  await dockerRestart(slot)
+}
+
+/** 升级:本人可操作;重建镜像 + 保留数据卷重建容器(容器没跑则直接拉起)。 */
+export async function upgradeInstance(userId: string, id: string): Promise<void> {
+  const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
+  if (!slot) throw new Error('实例不存在')
+  if (slot.userId !== userId) throw new Error('只能操作自己领取的实例')
+
+  const buildDir = process.env.DSH_HARNESS_BUILD_DIR || '/www/wwwroot/cbnac.com/dsh-harness'
+  // 镜像构建可能超过默认 60s,单独放宽
+  await run('docker', ['build', '-t', IMAGE, buildDir], { timeout: 300000 }).catch((e) => {
+    throw new Error(`镜像构建失败:${String(e?.message ?? e).slice(0, 200)}`)
+  })
+  // 保留数据卷:只停+删容器,不动 volume,再用新镜像拉起
+  await runDocker(['stop', '-t', '3', slot.containerName]).catch(() => {})
+  await runDocker(['rm', slot.containerName]).catch(() => {})
+  await dockerStart(slot)
+}
+
+/** 续期(每次 +7 天)。 */
+export async function renewInstance(userId: string, id: string): Promise<Instance> {
+  const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
+  if (!slot) throw new Error('实例不存在')
+  if (slot.userId !== userId) throw new Error('只能续期自己领取的实例')
+  const base = slot.expiresAt && new Date(slot.expiresAt).getTime() > Date.now() ? new Date(slot.expiresAt) : new Date()
+  const next = new Date(base.getTime() + INSTANCE_TTL_DAYS * 86400000)
+  await db
+    .update(instances)
+    .set({ expiresAt: next, status: 'claimed', updatedAt: new Date() })
+    .where(eq(instances.id, id))
+  return (await db.select().from(instances).where(eq(instances.id, id)).get())!
+}
+
+/** 过期扫描:停容器、清数据、回池。 */
+export async function sweepExpiredInstances(): Promise<number> {
+  const now = new Date()
+  const expired = await db
+    .select()
+    .from(instances)
+    .where(and(eq(instances.status, 'claimed'), lt(instances.expiresAt, now)))
+    .all()
+  for (const slot of expired) {
+    await dockerStop(slot).catch(() => {})
+    await db
+      .update(instances)
+      .set({ userId: null, status: 'available', claimedAt: null, expiresAt: null, updatedAt: now })
+      .where(eq(instances.id, slot.id))
+  }
+  return expired.length
+}

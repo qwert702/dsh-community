@@ -1,0 +1,6 @@
+export const GITHUB_TOKEN = process.env.GITHUB_TOKEN ?? ''
+export const DSH_REGISTRY_HMAC = process.env.DSH_REGISTRY_HMAC ?? ''
+export const AUTH_SECRET = process.env.AUTH_SECRET ?? 'dev-secret-change-me'
+export const WS_GATEWAY_URL = process.env.WS_GATEWAY_URL ?? 'http://127.0.0.1:3001'
+export const WS_GATEWAY_KEY = process.env.WS_GATEWAY_KEY ?? ''
+export const SYNC_KEY = process.env.SYNC_KEY ?? ''

@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0a0e1a;
+  --surface: #0f1524;
+  --accent: #22b8f0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-ink-950 text-slate-200 antialiased;
+  font-family: theme('fontFamily.sans');
+}
+
+::selection {
+  background: rgba(34, 184, 240, 0.3);
+}
+
+/* 代码高亮(rehype-highlight)配色 */
+.hljs {
+  @apply bg-ink-900 text-slate-200;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  font-family: theme('fontFamily.mono');
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #64748b;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal {
+  color: #c792ea;
+}
+.hljs-string,
+.hljs-title,
+.hljs-section {
+  color: #a5d6ff;
+}
+.hljs-number,
+.hljs-symbol {
+  color: #f78c6c;
+}
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-name {
+  color: #82aaff;
+}
+
+/* 滑动条 */
+::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #27334f;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4a6b;
+}
+
+/* 文档排版 */
+.prose-doc h1 {
+  @apply text-3xl font-bold text-white mt-10 mb-4;
+}
+.prose-doc h2 {
+  @apply text-2xl font-semibold text-white mt-8 mb-3;
+}
+.prose-doc h3 {
+  @apply text-xl font-semibold text-white mt-6 mb-2;
+}
+.prose-doc h4 {
+  @apply text-lg font-medium text-white mt-5 mb-2;
+}
+.prose-doc p {
+  @apply text-slate-300 leading-7 my-3;
+}
+.prose-doc ul {
+  @apply list-disc pl-6 my-3 space-y-1.5;
+}
+.prose-doc ol {
+  @apply list-decimal pl-6 my-3 space-y-1.5;
+}
+.prose-doc a {
+  @apply text-brand-400 underline underline-offset-2 hover:text-brand-400;
+}
+.prose-doc code {
+  @apply bg-ink-800 text-brand-400 rounded px-1.5 py-0.5 text-sm;
+}
+.prose-doc pre {
+  @apply my-4;
+}
+.prose-doc blockquote {
+  @apply border-l-4 border-brand-500 pl-4 italic text-slate-400 my-4;
+}
+.prose-doc table {
+  @apply w-full text-sm my-4 border border-ink-700 rounded-lg overflow-hidden;
+}
+.prose-doc th {
+  @apply bg-ink-800 text-slate-200 px-3 py-2 text-left font-medium;
+}
+.prose-doc td {
+  @apply px-3 py-2 border-t border-ink-800;
+}

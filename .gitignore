@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts.orig
+
+# env (local only)
+.env
+.env.local
+.env.*.local
+
+# sqlite data
+apps/web/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# build artifacts
+dist/
+*.tgz
+*.tar.gz
+
+# 全量构建部署副本(npm 装 deps 后的 apps/web 拷贝,体积大且可再生)
+deploy-web/
+
+# logs
+*.log
+npm-debug.log*
+
+# editor
+.vscode/
+.idea/
+.DS_Store
+
+# 设备侧状态文件由 dsh-link-plugin 写到用户主目录,不入库
+# 服务器凭据真值(本机部署用,严禁提交)
+scripts/.env.local

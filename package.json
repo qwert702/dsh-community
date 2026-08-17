@@ -1,0 +1,15 @@
+{
+  "name": "dsh-community",
+  "private": true,
+  "version": "0.1.0",
+  "description": "dsh (DeepSeek Harness) 开源社区 — 插件商店 + 文档 + 远程连接",
+  "scripts": {
+    "dev:web": "pnpm --filter @dsh-community/web dev",
+    "build:web": "pnpm --filter @dsh-community/web build",
+    "start:web": "pnpm --filter @dsh-community/web start",
+    "sync:registry": "pnpm --filter @dsh-community/web sync"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
