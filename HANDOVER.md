@@ -46,7 +46,7 @@
 
 | 端口 | 进程 | 说明 |
 |---|---|---|
-| 3000 | `cbnac` | 旧英语学习站(**保留未停**,供 blog 的 /api 用) |
+| 3000 | `cbnac` | 旧英语学习站(**2026-08-17 已暂停释放内存**,`pm2 start cbnac` 可恢复) |
 | 3001 | `dsh-ws` | WebSocket 网关(dsh-link 远程连接) |
 | 3002 | `dsh-web` | Next.js 15 社区站(standalone→改为 npm 全量部署) |
 | 3101/3102/3103 | Docker `dsh-u1/u2/u3` | 托管实例,host 网络绑定宿主 127.0.0.1 |
@@ -121,7 +121,9 @@
 1. **托管领取/释放进度条**:完成。`claimInstance` 领取后立即返回,前端轮询 `GET /api/instances` 新增的 `httpReady` 字段显示启动进度条(未就绪时 2s 快轮询,25s 预算对齐 `waitReady`),服务就绪后才出现「打开使用」按钮;`dockerStop -t 3` 一并保留。
 2. **托管实例到期自动清理**:完成。服务器 crontab 每 10 分钟 curl `http://127.0.0.1:3002/api/instances` 触发 `sweepExpiredInstances()`,无人访问托管页也会及时回收。
 3. **实例状态栏 + 管理员工单后台**:完成(2026-08-17 已上线)。每张托管卡片左侧新增状态栏(「实例控制」):「重启 dsh」(`docker restart`,保留容器与 volume)、「升级 dsh」(`docker build` 重新构建镜像 → stop+rm 容器但保留 volume → 重新启动)、「联系解决」(提交工单,≤2000 字)。工单落库 `tickets` 表(open/resolved),「管理员后台」(`/admin/tickets`,仅 `role=admin` 可见,Header 导航按角色隐藏)分组展示待处理/已解决工单,可标记解决/重新打开。`shuishui` 已提升为 admin(角色在 JWT 里,升级后需重新登录一次才生效)。
-4. **实例网页内控制条(重启/升级/联系解决)**:完成(2026-08-17 已上线)。用户点「打开使用」进入的 dsh 实例页面(u1/u2/u3.dsh.cbnac.com)左侧也有同款控制条 —— nginx `sub_filter` 往三个实例页面 `</head>` 前注入 `<script src="https://dsh.cbnac.com/ctrl/ctrl-bar.js">`(脚本在站点 `public/ctrl/`,Next.js 静态服务),并 `proxy_set_header Accept-Encoding ""` 防止上游 gzip 导致替换失败。脚本从 `location.hostname` 识别 slot → `GET /api/instances` 找实例 id → 调重启/升级/提交工单。跨子域(u1.dsh.cbnac.com → dsh.cbnac.com)是**同站**请求,SameSite=Lax 的 cookie 自动携带,只需 API 侧 CORS:`apps/web/middleware.ts` 对 `/api/instances/:path*` 加 `Access-Control-Allow-Origin`(仅回显 `*.dsh.cbnac.com`)+ `Allow-Credentials` + 处理 OPTIONS preflight(204),**不做登录拦截**(Edge 下解 JWE 的坑仍在,登录判断都在 route handler 里)。验证:三页面注入 ✓、GET/POST 带 Origin 返回正确 CORS 头 ✓、evil.com 无 CORS 头 ✓、未登录 POST 仍 401 ✓。
+4. **实例网页内控制条(重启/升级/联系解决)**:完成(2026-08-17 已上线)。用户点「打开使用」进入的 dsh 实例页面(u1/u2/u3.dsh.cbnac.com)左侧也有同款控制条 —— nginx `sub_filter` 往三个实例页面 `</head>` 前注入 `<script src="https://dsh.cbnac.com/ctrl/ctrl-bar.js">`(脚本在站点 `public/ctrl/`,Next.js 静态服务),并 `proxy_set_header Accept-Encoding ""` 防止上游 gzip 导致替换失败。脚本从 `location.hostname` 识别 slot → `GET /api/instances` 找实例 id → 调重启/升级/提交工单。跨子域(u1.dsh.cbnac.com → dsh.cbnac.com)是**同站**请求,SameSite=Lax 的 cookie 自动携带,只需 API 侧 CORS:`apps/web/middleware.ts` 对 `/api/instances/:path*` 加 `Access-Control-Allow-Origin`(仅回显 `*.dsh.cbnac.com`)+ `Allow-Credentials` + 处理 OPTIONS preflight(204),**不做登录拦截**(Edge 下解 JWE 的坑仍在,登录判断都在 route handler 里)。验证:三页面注入 ✓、GET/POST 带 Origin 返回正确 CORS 头 ✓、evil.com 无 CORS 头 ✓、未登录 POST 仍 401 ✓。控制条可收起/展开并记忆状态;2026-08-17 改为**并排占列**(dsh 内容右推,不悬浮遮挡)。
+5. **仓库开源 + 凭据脱敏**:完成(2026-08-17)。仓库推送至 **github.com/qwert702/dsh-community**(public)。推送前已脱敏:git 历史重写为单个初始 commit(彻底清除旧历史里的 root 密码/PAT/密钥),HANDOVER.md 凭据改为引用,scp/ssh/ecosystem 脚本密钥改环境变量(真值在本机 `scripts/.env.local`,已 gitignore)。本机 push 需走代理 `git config http.proxy http://127.0.0.1:7897`。
+6. **容量优化**:完成(2026-08-17)。旧站 `cbnac` 已 `pm2 stop`(释放 ~280MB,可 `pm2 start cbnac` 恢复);托管实例内存限制 350MB → **150MB**(`dockerStart`/`run-instance.sh` 改 `--memory=150m`,已运行容器 `docker update` 动态降限)。实测 dsh 在 150MB 下占用 90~115MB,服务正常。**注意**:若以后加更多实例,先 `docker update` 已有容器并确认站点进程内存。
 
 ### ⏳ 待办 / 打磨(M4 计划项,未做)
 3. **i18n 中英双语**(参照 dsh.so)—— 全站目前只有中文。
@@ -137,7 +139,7 @@
 
 ### ⚠️ 已知限制
 11. **重型插件远程安装**:better-markdown 这类带 esbuild 工具链的插件,prepare 里嵌套 `pnpm install` 会被 pnpm 11 的构建审批拦截(嵌套不继承 profile 的 allowBuilds),远程安装会失败 —— 需要用户手动在终端装一次接受审批。无 build 脚本的插件(sticky-note 等)远程装没问题。
-12. **内存紧张**:3 台容器 + 站点 ≈ 满内存,容器内存上限 350MB;若 OOM 需降到 2 台。
+12. **内存紧张**:2 核 / 1.8GB 内存,2026-08-17 已暂停旧站 cbnac(释放 ~280MB)+ 容器内存上限降到 **150MB**(实测 dsh 运行占用 90~115MB,余量 ~35-60MB,正常无 OOM);若继续 OOM 需降到 2 台实例。
 13. **服务器商店同步依赖 GFW 外的本机**(见第五节),无法在服务器直接跑 sync。
 14. **托管容器必须传 `DSH_TRUSTED_HOST=<子域>`**:dsh 的 `/api` 有 browser-trust fence,只接受 Host/Origin 都等于自身绑定地址(`127.0.0.1:端口`)的请求。不传该 env 时页面能开(静态资源不校验)但浏览器里所有 API 返回 403 forbidden(曾踩过:页面 200 但接口全 403)。2026-08-17 已完整修复,共两层:
     - 普通接口:`entrypoint.sh` 读取 `DSH_TRUSTED_HOST`(逗号分隔可多个,实测裸 host 即够,无需 `:443`),`instance-manager.dockerStart` 自动传 `slot.subdomain`;重建镜像后生效。
