@@ -18,7 +18,7 @@ echo "[2/2] 启动容器 $CNAME → host 127.0.0.1:$PORT"
 docker run -d \
   --name "$CNAME" \
   --network host \
-  --memory=350m \
+  --memory=150m \
   --restart=unless-stopped \
   -e "DSH_PORT=$PORT" \
   -v "$VOL:/root/.dsh" \

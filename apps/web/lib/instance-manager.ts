@@ -20,7 +20,7 @@ export async function dockerStart(slot: Instance): Promise<void> {
     'run', '-d',
     '--name', slot.containerName,
     '--network', 'host',
-    '--memory=350m',
+    '--memory=150m',
     '--restart=unless-stopped',
     '-e', `DSH_PORT=${slot.hostPort}`,
     '-e', `DSH_TRUSTED_HOST=${slot.subdomain}`,
