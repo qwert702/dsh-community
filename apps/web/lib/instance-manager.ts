@@ -22,13 +22,26 @@ function runDockerOnNas(args: string[]): Promise<{ stdout: string }> {
   }) as unknown as Promise<{ stdout: string }>
 }
 
+/** NAS 上执行任意命令(经 tailnet ssh)。 */
+function runOnNas(cmd: string): Promise<{ stdout: string }> {
+  return run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', `root@${NAS_HOST}`, cmd], {
+    timeout: 90000,
+  }) as unknown as Promise<{ stdout: string }>
+}
+
+/** NAS 实例的 socat 转发端口:服务器 nginx 连 410N,转发到 NAS 本机 127.0.0.1:310N
+ *  (dsh 出于安全只绑 127.0.0.1,拒绝 --host 0.0.0.0) */
+function socatPort(slot: Instance): number {
+  return slot.hostPort + 1000
+}
+
 /** 按实例所在主机选择 docker 执行器。 */
 function dockerFor(slot: Instance): (args: string[], opts?: { timeout?: number }) => Promise<{ stdout: string }> {
   return slot.host === 'nas' ? runDockerOnNas : runDocker
 }
 
-/** 启动容器(host 网络 + DSH_PORT 指定端口;dsh 只允许绑 127.0.0.1)
- *  DSH_LLM_BASE_URL:可选,指向 NAS 的 Ollama 推理服务(tailnet 内网),entrypoint 据此生成 settings.yaml */
+/** 启动容器(host 网络 + DSH_PORT 指定端口)。
+ *  服务器本地实例绑 127.0.0.1(nginx 同机转发);NAS 实例绑 127.0.0.1 + socat 转发 410N 暴露给服务器 nginx。 */
 export async function dockerStart(slot: Instance): Promise<void> {
   const volume = `${slot.containerName}-data`
   const docker = dockerFor(slot)
@@ -43,6 +56,31 @@ export async function dockerStart(slot: Instance): Promise<void> {
     '-v', `${volume}:/root/.dsh`,
     IMAGE,
   ])
+  if (slot.host === 'nas') {
+    await ensureSocat(slot)
+  }
+}
+
+/** NAS 实例:确保 socat 把 0.0.0.0:410N 转发到 127.0.0.1:310N(dsh 拒绝绑非回环)。
+ *  用 systemd 用户级托管保证重启后仍在;每次启动幂等。 */
+export async function ensureSocat(slot: Instance): Promise<void> {
+  const sp = socatPort(slot)
+  const unit = `dsh-socat-${slot.containerName}`
+  const cmd = `systemctl stop ${unit} 2>/dev/null; cat > /etc/systemd/system/${unit}.service <<EOF
+[Unit]
+Description=socat forward ${sp} -> 127.0.0.1:${slot.hostPort} for dsh ${slot.slot}
+After=docker.service
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:${sp},fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:${slot.hostPort}
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now ${unit} && systemctl restart ${unit}`
+  await runOnNas(cmd).catch((e) => {
+    throw new Error(`NAS socat 启动失败:${String(e?.message ?? e).slice(0, 200)}`)
+  })
 }
 
 export async function dockerStop(slot: Instance): Promise<void> {
@@ -51,6 +89,10 @@ export async function dockerStop(slot: Instance): Promise<void> {
   await docker(['stop', '-t', '3', slot.containerName]).catch(() => {})
   await docker(['rm', slot.containerName]).catch(() => {})
   await docker(['volume', 'rm', `${slot.containerName}-data`]).catch(() => {})
+  if (slot.host === 'nas') {
+    // 清理 socat 转发服务
+    await runOnNas(`systemctl stop dsh-socat-${slot.containerName} 2>/dev/null; systemctl disable dsh-socat-${slot.containerName} 2>/dev/null`).catch(() => {})
+  }
 }
 
 /** 重启容器(保留容器与数据卷)。 */
