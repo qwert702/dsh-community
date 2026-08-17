@@ -13,7 +13,7 @@
 
 1. **插件商店**:自动同步 GitHub 上 `topic:dsh-plugin` 的仓库,校验后上架,提供一键安装命令、签名注册表。
 2. **远程连接(dsh-link-plugin)**:用户本机跑着的 dsh 主动连到网站(WebSocket),在浏览器里就能远程给用户本机安装插件。
-3. **托管实例**:网站用 Docker 提供 3 台托管 dsh 实例,用户可"领取"一台,在浏览器里像正常 dsh 一样用。
+3. **托管实例**:网站用 Docker 提供 6 台托管 dsh 实例(2026-08-17 由 3 台扩容),用户可"领取"一台,在浏览器里像正常 dsh 一样用。
 
 主站 cbnac.com(英语学习站)和 blog.cbnac.com(博客)**都未动**,新站跑在子域 dsh.cbnac.com。
 
@@ -39,7 +39,7 @@
 ### 服务器(腾讯云,现为阿里云 Linux 3)
 
 - IP:**47.98.207.149**;root 密码见本机 `scripts/.env.local`(**敏感,不入库**)
-- 配置:**2 核 / 1.8GB 内存** / 40GB 磁盘 —— 资源很紧张,托管 3 台实例已是上限
+- 配置:**2 核 / 1.8GB 内存** / 40GB 磁盘 —— 资源很紧张,托管 6 台实例已是上限
 - 软件:nginx 1.24、Node.js 20(站点)、PM2、Docker 26.1.3、Let's Encrypt(certbot)
 
 ### 端口 / PM2 进程
@@ -49,16 +49,16 @@
 | 3000 | `cbnac` | 旧英语学习站(**2026-08-17 已暂停释放内存**,`pm2 start cbnac` 可恢复) |
 | 3001 | `dsh-ws` | WebSocket 网关(dsh-link 远程连接) |
 | 3002 | `dsh-web` | Next.js 15 社区站(standalone→改为 npm 全量部署) |
-| 3101/3102/3103 | Docker `dsh-u1/u2/u3` | 托管实例,host 网络绑定宿主 127.0.0.1 |
+| 3101~3106 | Docker `dsh-u1~u6` | 托管实例,host 网络绑定宿主 127.0.0.1 |
 
 ### 目录 / 配置
 
 - 站点:`/www/wwwroot/cbnac.com/dsh-site/`(含 `data/dsh.db`)
 - 网关:`/www/wwwroot/cbnac.com/ws-gateway/`
 - Docker 镜像构建:`/www/wwwroot/cbnac.com/dsh-harness/`
-- nginx:`/etc/nginx/conf.d/` → `cbnac.com.conf`(主站)、`dsh.cbnac.com.conf`(社区站)、`dsh-hosting.conf`(托管子域 u1/u2/u3)
+- nginx:`/etc/nginx/conf.d/` → `cbnac.com.conf`(主站)、`dsh.cbnac.com.conf`(社区站)、`dsh-hosting.conf`(托管子域 u1~u6)
 - PM2 配置:`/www/wwwroot/cbnac.com/ecosystem.config.cjs`
-- 证书:`/etc/letsencrypt/live/{cbnac.com,dsh.cbnac.com,u1.dsh.cbnac.com}/`(u1 那张含 u1/u2/u3 三个 SAN)
+- 证书:`/etc/letsencrypt/live/{cbnac.com,dsh.cbnac.com,u1.dsh.cbnac.com}/`(u1 那张含 u1~u6 六个 SAN)
 
 ### 数据库(SQLite,`data/dsh.db`)
 
@@ -74,7 +74,7 @@
 ### DNS(阿里云)
 
 - `dsh.cbnac.com → 47.98.207.149`
-- `u1.dsh / u2.dsh / u3.dsh → 47.98.207.149`(3 条,**不是一级 `*`**,阿里云一级 `*` 不覆盖 `*.dsh.`)
+- `u1.dsh / u2.dsh / u3.dsh / u4.dsh / u5.dsh / u6.dsh → 47.98.207.149`(6 条,**不是一级 `*`**,阿里云一级 `*` 不覆盖 `*.dsh.`)
 
 ---
 
@@ -124,6 +124,7 @@
 4. **实例网页内控制条(重启/升级/联系解决)**:完成(2026-08-17 已上线)。用户点「打开使用」进入的 dsh 实例页面(u1/u2/u3.dsh.cbnac.com)左侧也有同款控制条 —— nginx `sub_filter` 往三个实例页面 `</head>` 前注入 `<script src="https://dsh.cbnac.com/ctrl/ctrl-bar.js">`(脚本在站点 `public/ctrl/`,Next.js 静态服务),并 `proxy_set_header Accept-Encoding ""` 防止上游 gzip 导致替换失败。脚本从 `location.hostname` 识别 slot → `GET /api/instances` 找实例 id → 调重启/升级/提交工单。跨子域(u1.dsh.cbnac.com → dsh.cbnac.com)是**同站**请求,SameSite=Lax 的 cookie 自动携带,只需 API 侧 CORS:`apps/web/middleware.ts` 对 `/api/instances/:path*` 加 `Access-Control-Allow-Origin`(仅回显 `*.dsh.cbnac.com`)+ `Allow-Credentials` + 处理 OPTIONS preflight(204),**不做登录拦截**(Edge 下解 JWE 的坑仍在,登录判断都在 route handler 里)。验证:三页面注入 ✓、GET/POST 带 Origin 返回正确 CORS 头 ✓、evil.com 无 CORS 头 ✓、未登录 POST 仍 401 ✓。控制条可收起/展开并记忆状态;2026-08-17 改为**并排占列**(dsh 内容右推,不悬浮遮挡)。
 5. **仓库开源 + 凭据脱敏**:完成(2026-08-17)。仓库推送至 **github.com/qwert702/dsh-community**(public)。推送前已脱敏:git 历史重写为单个初始 commit(彻底清除旧历史里的 root 密码/PAT/密钥),HANDOVER.md 凭据改为引用,scp/ssh/ecosystem 脚本密钥改环境变量(真值在本机 `scripts/.env.local`,已 gitignore)。本机 push 需走代理 `git config http.proxy http://127.0.0.1:7897`。
 6. **容量优化**:完成(2026-08-17)。旧站 `cbnac` 已 `pm2 stop`(释放 ~280MB,可 `pm2 start cbnac` 恢复);托管实例内存限制 350MB → **150MB**(`dockerStart`/`run-instance.sh` 改 `--memory=150m`,已运行容器 `docker update` 动态降限)。实测 dsh 在 150MB 下占用 90~115MB,服务正常。**注意**:若以后加更多实例,先 `docker update` 已有容器并确认站点进程内存。
+7. **实例池扩至 6 台**:完成(2026-08-17)。新增 u4/u5/u6(端口 3104~3106):DB 种 6 槽(`init-instances.mjs` 已更新)、证书 expand 为 6 个 SAN(u1 证书)、nginx `dsh-hosting.conf` 加 3 个 server block(含 sub_filter 注入 + Host/Origin 重写)。实测 u4 测试容器 150m 限制 + dsh web 200,清理后恢复 available。当前池:u1/u2 被领取运行中,u3~u6 空闲。
 
 ### ⏳ 待办 / 打磨(M4 计划项,未做)
 3. **i18n 中英双语**(参照 dsh.so)—— 全站目前只有中文。
