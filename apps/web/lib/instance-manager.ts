@@ -8,15 +8,31 @@ const run = promisify(execFile)
 
 export const INSTANCE_TTL_DAYS = 7
 const IMAGE = process.env.DSH_HARNESS_IMAGE || 'dsh-harness:latest'
+const NAS_HOST = process.env.DSH_NAS_HOST || '100.76.91.96'
 
-function runDocker(args: string[]): Promise<{ stdout: string }> {
-  return run('docker', args, { timeout: 60000 }) as unknown as Promise<{ stdout: string }>
+function runDocker(args: string[], opts?: { timeout?: number }): Promise<{ stdout: string }> {
+  return run('docker', args, { timeout: opts?.timeout ?? 60000 }) as unknown as Promise<{ stdout: string }>
 }
 
-/** 启动容器(host 网络 + DSH_PORT 指定端口;dsh 只允许绑 127.0.0.1) */
+/** NAS 上执行 docker 命令(经 tailnet ssh,与服务器同网)。 */
+function runDockerOnNas(args: string[]): Promise<{ stdout: string }> {
+  const quoted = args.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
+  return run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', `root@${NAS_HOST}`, `docker ${quoted}`], {
+    timeout: 90000,
+  }) as unknown as Promise<{ stdout: string }>
+}
+
+/** 按实例所在主机选择 docker 执行器。 */
+function dockerFor(slot: Instance): (args: string[], opts?: { timeout?: number }) => Promise<{ stdout: string }> {
+  return slot.host === 'nas' ? runDockerOnNas : runDocker
+}
+
+/** 启动容器(host 网络 + DSH_PORT 指定端口;dsh 只允许绑 127.0.0.1)
+ *  DSH_LLM_BASE_URL:可选,指向 NAS 的 Ollama 推理服务(tailnet 内网),entrypoint 据此生成 settings.yaml */
 export async function dockerStart(slot: Instance): Promise<void> {
   const volume = `${slot.containerName}-data`
-  await runDocker([
+  const docker = dockerFor(slot)
+  await docker([
     'run', '-d',
     '--name', slot.containerName,
     '--network', 'host',
@@ -30,15 +46,17 @@ export async function dockerStart(slot: Instance): Promise<void> {
 }
 
 export async function dockerStop(slot: Instance): Promise<void> {
+  const docker = dockerFor(slot)
   // 忽略不存在容器的报错
-  await runDocker(['stop', '-t', '3', slot.containerName]).catch(() => {})
-  await runDocker(['rm', slot.containerName]).catch(() => {})
-  await runDocker(['volume', 'rm', `${slot.containerName}-data`]).catch(() => {})
+  await docker(['stop', '-t', '3', slot.containerName]).catch(() => {})
+  await docker(['rm', slot.containerName]).catch(() => {})
+  await docker(['volume', 'rm', `${slot.containerName}-data`]).catch(() => {})
 }
 
 /** 重启容器(保留容器与数据卷)。 */
 export async function dockerRestart(slot: Instance): Promise<void> {
-  await runDocker(['restart', slot.containerName])
+  const docker = dockerFor(slot)
+  await docker(['restart', slot.containerName])
 }
 
 /** 等待容器端口上的 dsh web 就绪(轮询到 HTTP 200,最长约 25s)。 */
@@ -54,9 +72,10 @@ export async function waitReady(slot: Instance): Promise<boolean> {
 /** 单次探测容器端口上的 dsh web 是否已就绪(短超时,给轮询接口用)。 */
 export async function probeReady(slot: Instance): Promise<boolean> {
   try {
+    const base = slot.host === 'nas' ? `http://${NAS_HOST}:${slot.hostPort}` : `http://127.0.0.1:${slot.hostPort}`
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 2000)
-    const res = await fetch(`http://127.0.0.1:${slot.hostPort}/`, { signal: controller.signal })
+    const res = await fetch(`${base}/`, { signal: controller.signal })
     clearTimeout(timer)
     return res.ok
   } catch {
@@ -65,8 +84,9 @@ export async function probeReady(slot: Instance): Promise<boolean> {
 }
 
 export async function dockerStatus(slot: Instance): Promise<string> {
+  const docker = dockerFor(slot)
   try {
-    const { stdout } = await runDocker(['inspect', '--format', '{{.State.Status}}', slot.containerName])
+    const { stdout } = await docker(['inspect', '--format', '{{.State.Status}}', slot.containerName])
     return stdout.trim()
   } catch {
     return 'missing'
@@ -126,11 +146,21 @@ export async function restartInstance(userId: string, id: string): Promise<void>
   await dockerRestart(slot)
 }
 
-/** 升级:本人可操作;重建镜像 + 保留数据卷重建容器(容器没跑则直接拉起)。 */
+/** 升级:本人可操作;重建镜像 + 保留数据卷重建容器(容器没跑则直接拉起)。
+ *  NAS 实例在 NAS 上构建镜像(同源码目录经 tailnet 挂载/拷贝),构建可能较慢。 */
 export async function upgradeInstance(userId: string, id: string): Promise<void> {
   const slot = await db.select().from(instances).where(eq(instances.id, id)).get()
   if (!slot) throw new Error('实例不存在')
   if (slot.userId !== userId) throw new Error('只能操作自己领取的实例')
+
+  const docker = dockerFor(slot)
+  if (slot.host === 'nas') {
+    // NAS 上没有构建源码,改用 NAS 上已有的最新镜像(或由管理员手动构建)
+    await docker(['stop', '-t', '3', slot.containerName]).catch(() => {})
+    await docker(['rm', slot.containerName]).catch(() => {})
+    await dockerStart(slot)
+    return
+  }
 
   const buildDir = process.env.DSH_HARNESS_BUILD_DIR || '/www/wwwroot/cbnac.com/dsh-harness'
   // 镜像构建可能超过默认 60s,单独放宽
@@ -138,8 +168,8 @@ export async function upgradeInstance(userId: string, id: string): Promise<void>
     throw new Error(`镜像构建失败:${String(e?.message ?? e).slice(0, 200)}`)
   })
   // 保留数据卷:只停+删容器,不动 volume,再用新镜像拉起
-  await runDocker(['stop', '-t', '3', slot.containerName]).catch(() => {})
-  await runDocker(['rm', slot.containerName]).catch(() => {})
+  await docker(['stop', '-t', '3', slot.containerName]).catch(() => {})
+  await docker(['rm', slot.containerName]).catch(() => {})
   await dockerStart(slot)
 }
 

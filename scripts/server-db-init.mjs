@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS instances (
   subdomain TEXT NOT NULL UNIQUE,
   host_port INTEGER NOT NULL,
   container_name TEXT NOT NULL,
+  host TEXT NOT NULL DEFAULT 'local',
   user_id TEXT REFERENCES users(id),
   status TEXT NOT NULL DEFAULT 'available',
   claimed_at INTEGER,

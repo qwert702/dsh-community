@@ -132,6 +132,7 @@ export const instances = sqliteTable(
     subdomain: text('subdomain').notNull().unique(), // u1.dsh.cbnac.com
     hostPort: integer('host_port').notNull(), // 3101…
     containerName: text('container_name').notNull(), // dsh-u1
+    host: text('host', { enum: ['local', 'nas'] }).notNull().default('local'), // local=本服务器, nas=内网 NAS
     userId: text('user_id').references(() => users.id), // 空 = 空闲
     status: text('status', { enum: ['available', 'claimed', 'expired'] })
       .notNull()
