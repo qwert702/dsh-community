@@ -29,6 +29,8 @@
 .dsh-ctrl-btn:disabled{opacity:.55;cursor:not-allowed}
 .dsh-ctrl-btn.amber{border-color:rgba(245,158,11,.5);color:#fbbf24}
 .dsh-ctrl-btn.amber:hover:not(:disabled){background:rgba(245,158,11,.12)}
+.dsh-ctrl-btn.market{border-color:rgba(34,197,94,.5);color:#4ade80}
+.dsh-ctrl-btn.market:hover:not(:disabled){background:rgba(34,197,94,.12)}
 .dsh-ctrl-msg{margin-top:auto;font-size:11px;color:#64748b;line-height:1.6}
 .dsh-ctrl-toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:2147483001;padding:9px 18px;border-radius:10px;background:rgba(15,23,42,.95);border:1px solid rgba(148,163,184,.3);color:#f1f5f9;font-size:13px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.45);max-width:76vw}
 .dsh-ctrl-toast.err{border-color:rgba(239,68,68,.5);color:#fca5a5}
@@ -58,6 +60,7 @@
     <button class="dsh-ctrl-btn" id="dsh-ctrl-restart" disabled>⟳ 重启 dsh</button>
     <button class="dsh-ctrl-btn" id="dsh-ctrl-upgrade" disabled>⬆ 升级 dsh</button>
     <button class="dsh-ctrl-btn amber" id="dsh-ctrl-ticket">✉ 联系解决</button>
+    <button class="dsh-ctrl-btn market" id="dsh-ctrl-market">🛍 插件市场</button>
     <div class="dsh-ctrl-form" id="dsh-ctrl-form">
       <textarea id="dsh-ctrl-msg-input" placeholder="描述遇到的问题…(最多 2000 字)"></textarea>
       <button class="dsh-ctrl-submit" id="dsh-ctrl-submit">提交工单</button>
@@ -97,9 +100,15 @@
   const restartBtn = $('dsh-ctrl-restart')
   const upgradeBtn = $('dsh-ctrl-upgrade')
   const ticketBtn = $('dsh-ctrl-ticket')
+  const marketBtn = $('dsh-ctrl-market')
   const form = $('dsh-ctrl-form')
   const msgInput = $('dsh-ctrl-msg-input')
   const submitBtn = $('dsh-ctrl-submit')
+
+  // 打开插件市场(由 market.js 监听)
+  marketBtn.addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('dsh-open-market'))
+  })
 
   let instanceId = null
   let toasting = false
