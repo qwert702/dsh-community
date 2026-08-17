@@ -50,16 +50,19 @@ function loadRandomDomains(): string[] {
   return randomDomains
 }
 
-/** 领取时分配一个未用的随机子域名;无空闲返回 null(回退用内部 slot 域名) */
-async function allocateRandomDomain(): Promise<string | null> {
+/** 领取时分配一个未用的随机子域名(必须匹配实例端口,nginx map 按域名→固定端口路由);无空闲返回 null */
+async function allocateRandomDomain(hostPort: number): Promise<string | null> {
   const pool = loadRandomDomains()
   if (pool.length === 0) return null
-  // 找出已分配的,剩余随机取一个
+  // 找出已分配的,从映射到该实例端口的域名里随机取一个未用的
   const usedRows = await db.select({ randSubdomain: instances.randSubdomain }).from(instances).all()
   const used = new Set(usedRows.map((r) => r.randSubdomain).filter(Boolean))
-  const free = pool.filter((d) => !used.has(d))
-  if (free.length === 0) return null
-  return free[Math.floor(Math.random() * free.length)]
+  const candidates = pool
+    .map((d, i) => ({ d, port: 3101 + (i % 12) }))
+    .filter(({ d, port }) => port === hostPort && !used.has(d))
+    .map((x) => x.d)
+  if (candidates.length === 0) return null
+  return candidates[Math.floor(Math.random() * candidates.length)]
 }
 
 /** 按实例所在主机选择 docker 执行器。 */
@@ -194,7 +197,7 @@ export async function claimInstance(userId: string): Promise<Instance> {
 
   // NAS 实例 docker run 较慢(~16s+),先标记领取再后台启动,让点击立即有响应
   const isNas = free.host === 'nas'
-  const randSub = await allocateRandomDomain()
+  const randSub = await allocateRandomDomain(free.hostPort)
   await db
     .update(instances)
     .set({
