@@ -50,7 +50,7 @@
     <div class="dsh-ctrl-head">
       <div class="dsh-ctrl-head-content">
         <div class="dsh-ctrl-title">实例控制</div>
-        <div class="dsh-ctrl-slot">${SLOT}.dsh.cbnac.com</div>
+        <div class="dsh-ctrl-slot">${location.hostname}</div>
         <div class="dsh-ctrl-status"><span class="dsh-ctrl-dot" id="dsh-ctrl-dot"></span><span id="dsh-ctrl-status-text">连接中…</span></div>
       </div>
       <button class="dsh-ctrl-toggle" id="dsh-ctrl-toggle" title="收起控制条">«</button>
@@ -126,7 +126,7 @@
     })
     .then((data) => {
       const list = Array.isArray(data) ? data : data?.instances || []
-      const inst = list.find((i) => i.slot === SLOT)
+      const inst = list.find((i) => i.subdomain === location.hostname) || list.find((i) => i.slot === SLOT)
       if (!inst) {
         setStatus('err', '未找到该实例')
         toast('未找到该实例的托管记录,请先到 dsh.cbnac.com/hosting 领取', 'err')
